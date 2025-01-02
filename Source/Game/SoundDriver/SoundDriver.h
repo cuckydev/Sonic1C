@@ -98,8 +98,8 @@ typedef struct
 	} u;
 	union
 	{
-		u8 LoopCounters[4 * 3];
-		u32 Stack[3];
+		u8 LoopCounters[sizeof(u8*) * 3];
+		u8 *Stack[3];
 	} top;
 } SoundDriverTrack;
 

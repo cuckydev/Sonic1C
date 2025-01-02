@@ -1,9 +1,26 @@
 #include "Game/Main.h"
 
+#include "Game/Sound.h"
+
+#include "Game/SoundDriver/SoundDriver.h"
+#include "Game/SoundDriver/SoundEnum.h"
+
+#include "SDL.h"
+#ifdef main
+#undef main
+#endif
+
 /* Game initialization */
 void TheMain()
 {
 	GameInit();
+
+	PlaySound(bgm_GHZ);
+	while (1)
+	{
+		UpdateMusic();
+		SDL_Delay(16);
+	}
 }
 
 /* System entry point */

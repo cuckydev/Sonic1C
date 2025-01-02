@@ -77,6 +77,7 @@ endif()
 # Compile hardware emulation libraries
 add_library(Sonic1C.Hardware STATIC
 	"Source/YM2612/YM2612.c"
+	"Source/YM2612/YM2612.h"
 
 	"Source/PSG/PSG.c"
 	"Source/PSG/PSG.h"
@@ -84,7 +85,7 @@ add_library(Sonic1C.Hardware STATIC
 
 target_include_directories(Sonic1C.Hardware PRIVATE "Source")
 
-target_link_libraries(Sonic1C.Hardware PRIVATE Sonic1C.StrictConfig)
+target_link_libraries(Sonic1C.Hardware PRIVATE Sonic1C.Config)
 
 # Compile the executable
 add_executable(Sonic1C WIN32
@@ -100,6 +101,13 @@ target_link_directories(Sonic1C PRIVATE "ThirdParty/SDL/lib/x64")
 target_include_directories(Sonic1C PRIVATE "ThirdParty/SDL/include")
 
 target_link_libraries(Sonic1C PRIVATE SDL winmm dxguid dinput8)
+
+# Copy SDL dll to the output directory
+add_custom_command(TARGET Sonic1C POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		"${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SDL/lib/x64/SDL.dll"
+		"$<TARGET_FILE_DIR:Sonic1C>"
+)
 
 # Compile bin2h
 add_subdirectory("Tools/bin2h" EXCLUDE_FROM_ALL)

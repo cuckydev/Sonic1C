@@ -5,6 +5,7 @@
 
 #include "Game/SoundDriver/SoundEnum.h"
 
+#include "YM2612/YM2612.h"
 #include "PSG/PSG.h"
 
 #include <string.h>
@@ -181,7 +182,7 @@ void UpdateMusic(void)
 	/* Update tracks */
 	track = &v_snddriver_ram.state.v_music_dac_track[0];
 
-	if (track->PlaybackControl.s.playing)
+	if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 		if (DACUpdateTrack(track))
 			return;
 	v_snddriver_ram.state.f_updating_dac = 0;
@@ -189,7 +190,7 @@ void UpdateMusic(void)
 	track = &v_snddriver_ram.state.v_music_fm1_track[0];
 	for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_FM_TRACKS; i++, track++)
 	{
-		if (track->PlaybackControl.s.playing)
+		if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 			if (FMUpdateTrack(track))
 				return;
 	}
@@ -197,7 +198,7 @@ void UpdateMusic(void)
 	track = &v_snddriver_ram.state.v_music_psg1_track[0];
 	for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_PSG_TRACKS; i++, track++)
 	{
-		if (track->PlaybackControl.s.playing)
+		if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 			if (PSGUpdateTrack(track))
 				return;
 	}
@@ -208,7 +209,7 @@ void UpdateMusic(void)
 	track = &v_snddriver_ram.v_sfx_fm3_track[0];
 	for (i = 0; i < SOUND_DRIVER_NUM_SFX_FM_TRACKS; i++, track++)
 	{
-		if (track->PlaybackControl.s.playing)
+		if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 			if (FMUpdateTrack(track))
 				return;
 	}
@@ -216,7 +217,7 @@ void UpdateMusic(void)
 	track = &v_snddriver_ram.v_sfx_psg1_track[0];
 	for (i = 0; i < SOUND_DRIVER_NUM_SFX_PSG_TRACKS; i++, track++)
 	{
-		if (track->PlaybackControl.s.playing)
+		if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 			if (PSGUpdateTrack(track))
 				return;
 	}
@@ -225,12 +226,12 @@ void UpdateMusic(void)
 	v_snddriver_ram.state.f_voice_selector = 0x40;
 
 	track = &v_snddriver_ram.v_spcsfx_fm4_track[0];
-	if (track->PlaybackControl.s.playing)
+	if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 		if (FMUpdateTrack(track))
 			return;
 
 	track = &v_snddriver_ram.v_spcsfx_psg3_track[0];
-	if (track->PlaybackControl.s.playing)
+	if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 		if (PSGUpdateTrack(track))
 			return;
 }
@@ -285,7 +286,7 @@ static int DACUpdateTrack(SoundDriverTrack *track)
 
 	track->DataPointer = data_p;
 
-	if (!track->PlaybackControl.s.sfx_override)
+	if (!(track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE))
 	{
 		u8 sample = track->u.dac.SavedDAC;
 		if (sample != 0x80)
@@ -319,7 +320,7 @@ static int FMUpdateTrack(SoundDriverTrack *track)
 {
 	if (!--track->u.dac.DurationTimeout)
 	{
-		track->PlaybackControl.s.do_not_attack_next = 0;
+		track->PlaybackControl &= ~PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT;
 		if (FMDoNext(track))
 			return 1;
 		FMPrepareNote(track);
@@ -417,7 +418,7 @@ static void SetDuration(SoundDriverTrack *track, u8 duration)
 
 static void TrackSetRest(SoundDriverTrack *track, u8 *data_p)
 {
-	track->PlaybackControl.s.at_rest = 1;
+	track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 	track->u.fm.Freq = 0;
 	FinishTrackUpdate(track, data_p);
 }
@@ -428,13 +429,13 @@ static void FinishTrackUpdate(SoundDriverTrack *track, u8 *data_p)
 
 	track->u.fm.DurationTimeout = track->u.fm.SavedDuration;
 
-	if (track->PlaybackControl.s.do_not_attack_next)
+	if (track->PlaybackControl & PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT)
 		return;
 
 	track->u.fm.NoteTimeout = track->u.fm.NoteTimeoutMaster;
 	track->u.psg.VolEnvIndex = 0;
 
-	if (track->PlaybackControl.s.modulation)
+	if (track->PlaybackControl & PLAYBACKCONTROL_MODULATION)
 	{
 		track->u.fm.ModulationWait = track->u.fm.ModulationPtr[0];
 		track->u.fm.ModulationSpeed = track->u.fm.ModulationPtr[1];
@@ -449,9 +450,9 @@ static int NoteTimeoutUpdate(SoundDriverTrack *track)
 	if (!track->u.fm.NoteTimeout || --track->u.fm.NoteTimeout)
 		return 0;
 
-	track->PlaybackControl.s.at_rest = 1;
+	track->PlaybackControl |= 1;
 
-	if (!track->VoiceControl.s.is_psg)
+	if (!(track->VoiceControl & VOICECONTROL_IS_PSG))
 		FMNoteOff(track);
 	else
 		PSGNoteOff(track);
@@ -463,7 +464,7 @@ static int DoModulation(SoundDriverTrack *track, s16 *freq)
 {
 	s16 delta;
 
-	if (!track->PlaybackControl.s.modulation)
+	if (!(track->PlaybackControl & PLAYBACKCONTROL_MODULATION))
 		return 1;
 
 	if (track->u.fm.ModulationWait)
@@ -498,7 +499,7 @@ static int DoModulation(SoundDriverTrack *track, s16 *freq)
 
 static void FMPrepareNote(SoundDriverTrack *track)
 {
-	if (track->PlaybackControl.s.at_rest)
+	if (track->PlaybackControl & PLAYBACKCONTROL_AT_REST)
 		return;
 
 	if (track->u.fm.Freq == 0)
@@ -514,7 +515,7 @@ static void FMUpdateFreq(SoundDriverTrack *track, s16 freq)
 {
 	freq += (s8)track->u.fm.Detune;
 
-	if (track->PlaybackControl.s.sfx_override)
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return;
 
 	/* Register for upper 6 bits of frequency */
@@ -525,7 +526,7 @@ static void FMUpdateFreq(SoundDriverTrack *track, s16 freq)
 
 static void FMSetRest(SoundDriverTrack *track)
 {
-	track->PlaybackControl.s.at_rest = 1;
+	track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 }
 
 static void PauseMusic(void)
@@ -578,9 +579,9 @@ static void PauseMusic(void)
 		track = &v_snddriver_ram.state.v_music_dac_track[0];
 		for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_DAC_TRACKS + SOUND_DRIVER_NUM_MUSIC_FM_TRACKS; i++, track++)
 		{
-			if (!track->PlaybackControl.s.playing)
+			if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 				continue;
-			if (track->PlaybackControl.s.sfx_override)
+			if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 				continue;
 
 			fm_addr = 0xB4; /* Command to set AMS/FMS/panning */
@@ -593,9 +594,9 @@ static void PauseMusic(void)
 		track = &v_snddriver_ram.v_sfx_fm3_track[0];
 		for (i = 0; i < SOUND_DRIVER_NUM_SFX_FM_TRACKS; i++, track++)
 		{
-			if (!track->PlaybackControl.s.playing)
+			if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 				continue;
-			if (track->PlaybackControl.s.sfx_override)
+			if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 				continue;
 
 			fm_addr = 0xB4; /* Command to set AMS/FMS/panning */
@@ -609,10 +610,10 @@ static void PauseMusic(void)
 		for (i = 0; i < SOUND_DRIVER_NUM_SPCSFX_FM_TRACKS; i++, track++)
 		{
 			/* Is track not playing? */
-			if (!track->PlaybackControl.s.playing)
+			if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 				continue;
 			/* Is track being overridden? */
-			if (track->PlaybackControl.s.sfx_override)
+			if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 				continue;
 
 			fm_addr = 0xB4; /* Command to set AMS/FMS/panning */
@@ -676,7 +677,7 @@ static int PlaySoundID(void)
 	sound_id = v_snddriver_ram.state.v_sound_id;
 	if (sound_id == 0)
 		return StopAllSound();
-	else if (sound_id & 0x80)
+	else if (!(sound_id & 0x80))
 		return 0;
 
 	/* Check if this is a music track */
@@ -740,12 +741,12 @@ static int Sound_PlayBGM(u8 sound_id)
 		/* Clear sfx is overriding bit */
 		track = &v_snddriver_ram.state.v_music_dac_track[0];
 		for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_TRACKS; i++, track++)
-			track->PlaybackControl.s.sfx_override = 0;
+			track->PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
 
 		/* Stop sfx */
 		track = &v_snddriver_ram.v_sfx_fm3_track[0];
 		for (i = 0; i < SOUND_DRIVER_NUM_SFX_TRACKS; i++, track++)
-			track->PlaybackControl.s.playing = 0;
+			track->PlaybackControl &= ~PLAYBACKCONTROL_PLAYING;
 
 		v_snddriver_ram.state.v_sndprio = 0;
 
@@ -812,8 +813,8 @@ static int Sound_PlayBGM(u8 sound_id)
 
 		do
 		{
-			track->PlaybackControl.s.playing = 1;
-			track->VoiceControl.b = *init_p++;
+			track->PlaybackControl |= PLAYBACKCONTROL_PLAYING;
+			track->VoiceControl = *init_p++;
 
 			track->TempoDivider = dividing_timing;
 			track->u.fm.StackPointer = sizeof(SoundDriverTrack);
@@ -868,8 +869,8 @@ static int Sound_PlayBGM(u8 sound_id)
 
 		do
 		{
-			track->PlaybackControl.s.playing = 1;
-			track->VoiceControl.b = *init_p++;
+			track->PlaybackControl |= PLAYBACKCONTROL_PLAYING;
+			track->VoiceControl = *init_p++;
 
 			track->TempoDivider = dividing_timing;
 			track->u.psg.StackPointer = sizeof(SoundDriverTrack);
@@ -892,32 +893,31 @@ static int Sound_PlayBGM(u8 sound_id)
 	sfx_track = &v_snddriver_ram.v_sfx_fm3_track[0];
 	for (i = 0; i < SOUND_DRIVER_NUM_SFX_TRACKS; i++, sfx_track++)
 	{
-		union VoiceControl index;
+		u8 index;
 
 		SoundDriverTrack *bgm_track;
 
 		/* Is track not playing? */
-		if (!sfx_track->PlaybackControl.s.playing)
+		if (!(sfx_track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 			continue;
 
 		index = sfx_track->VoiceControl;
 		
-		/* Is not PSG? */
-		if (!index.s.is_psg)
-			index.b -= 2;
+		if (!(index & VOICECONTROL_IS_PSG))
+			index -= 2;
 		else
-			index.b = index.psg.index;
+			index >>= (3 + 2);
 
-		bgm_track = SFX_BGMChannelRAM[index.b];
+		bgm_track = SFX_BGMChannelRAM[index];
 		/* Set sfx is overriding bit */
-		bgm_track->PlaybackControl.s.sfx_override = 1;
+		bgm_track->PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 	}
 
 	/* Check special sfx overrides */
-	if (v_snddriver_ram.v_spcsfx_fm4_track[0].PlaybackControl.s.playing)
-		v_snddriver_ram.state.v_music_fm1_track[4 - 1].PlaybackControl.s.sfx_override = 1;
-	if (v_snddriver_ram.v_spcsfx_psg3_track[0].PlaybackControl.s.playing)
-		v_snddriver_ram.state.v_music_psg1_track[3 - 1].PlaybackControl.s.sfx_override = 1;
+	if (v_snddriver_ram.v_spcsfx_fm4_track[0].PlaybackControl & PLAYBACKCONTROL_PLAYING)
+		v_snddriver_ram.state.v_music_fm1_track[4 - 1].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
+	if (v_snddriver_ram.v_spcsfx_psg3_track[0].PlaybackControl & PLAYBACKCONTROL_PLAYING)
+		v_snddriver_ram.state.v_music_psg1_track[3 - 1].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 
 	return 1;
 }
@@ -987,13 +987,13 @@ static void Sound_PlaySFX(u8 sound_id)
 			/* - 2 because SFX can only have FM3 or up */
 			index = voice_control - 2;
 			track = SFX_BGMChannelRAM[index];
-			track->PlaybackControl.s.sfx_override = 1;
+			track->PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 		}
 		else
 		{
 			index = voice_control >> (3 + 2);
 			track = SFX_SFXChannelRAM[index];
-			track->PlaybackControl.s.sfx_override = 1;
+			track->PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 
 			/* Is this PSG 3? */
 			if (voice_control == 0xC0)
@@ -1008,8 +1008,8 @@ static void Sound_PlaySFX(u8 sound_id)
 
 		memset(track, 0, sizeof(SoundDriverTrack));
 
-		track->PlaybackControl.b = *sound_p++;
-		track->VoiceControl.b = *sound_p++;
+		track->PlaybackControl = *sound_p++;
+		track->VoiceControl = *sound_p++;
 
 		track->TempoDivider = dividing_timing;
 
@@ -1030,12 +1030,12 @@ static void Sound_PlaySFX(u8 sound_id)
 	} while (number_of_tracks-- > 0);
 
 	/* Check special sfx override */
-	if (v_snddriver_ram.v_sfx_fm3_track[4 - 3].PlaybackControl.s.playing)
-		v_snddriver_ram.v_spcsfx_fm4_track[4 - 4].PlaybackControl.s.sfx_override = 1;
+	if (v_snddriver_ram.v_sfx_fm3_track[4 - 3].PlaybackControl & PLAYBACKCONTROL_PLAYING)
+		v_snddriver_ram.v_spcsfx_fm4_track[4 - 4].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 
 	/* Is SFX being played? */
-	if (v_snddriver_ram.v_sfx_psg1_track[3 - 1].PlaybackControl.s.playing)
-		v_snddriver_ram.v_spcsfx_psg3_track[3 - 3].PlaybackControl.s.sfx_override = 1;
+	if (v_snddriver_ram.v_sfx_psg1_track[3 - 1].PlaybackControl & PLAYBACKCONTROL_PLAYING)
+		v_snddriver_ram.v_spcsfx_psg3_track[3 - 3].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 }
 
 static SoundDriverTrack *SFX_BGMChannelRAM[8] = {
@@ -1092,24 +1092,22 @@ static void Sound_PlaySpecial(u8 sound_id)
 
 		voice_control = sound_p[1];
 
-		/* Is voice not PSG? */
-		if (!(voice_control & (1 << 7)))
+		if (!(voice_control & VOICECONTROL_IS_PSG))
 		{
-			/* Set SFX is overriding bit */
-			v_snddriver_ram.state.v_music_fm1_track[4 - 1].PlaybackControl.s.sfx_override = 1;
+			v_snddriver_ram.state.v_music_fm1_track[4 - 1].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 			track = &v_snddriver_ram.state.v_music_fm1_track[4 - 1];
 		}
 		else
 		{
 			/* Set SFX is overriding bit */
-			v_snddriver_ram.state.v_music_psg1_track[3 - 1].PlaybackControl.s.sfx_override = 1;
+			v_snddriver_ram.state.v_music_psg1_track[3 - 1].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 			track = &v_snddriver_ram.state.v_music_psg1_track[3 - 1];
 		}
 
 		memset(track, 0, sizeof(SoundDriverTrack));
 
-		track->PlaybackControl.b = *sound_p++;
-		track->VoiceControl.b = *sound_p++;
+		track->PlaybackControl = *sound_p++;
+		track->VoiceControl = *sound_p++;
 
 		track->TempoDivider = dividing_timing;
 
@@ -1126,12 +1124,12 @@ static void Sound_PlaySpecial(u8 sound_id)
 			track->u.fm.AMSFMSPan = 0xC0;
 	} while (number_of_tracks-- > 0);
 
-	if (v_snddriver_ram.v_sfx_fm3_track[4 - 3].PlaybackControl.s.playing)
-		v_snddriver_ram.v_spcsfx_fm4_track[4 - 4].PlaybackControl.s.sfx_override = 1;
+	if (v_snddriver_ram.v_sfx_fm3_track[4 - 3].PlaybackControl & PLAYBACKCONTROL_PLAYING)
+		v_snddriver_ram.v_spcsfx_fm4_track[4 - 4].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 	
-	if (v_snddriver_ram.v_sfx_psg1_track[3 - 1].PlaybackControl.s.playing)
+	if (v_snddriver_ram.v_sfx_psg1_track[3 - 1].PlaybackControl & PLAYBACKCONTROL_PLAYING)
 	{
-		v_snddriver_ram.v_spcsfx_psg3_track[3 - 3].PlaybackControl.s.sfx_override = 1;
+		v_snddriver_ram.v_spcsfx_psg3_track[3 - 3].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 
 		/* Silence PSG 3 and noise */
 		PSG_Input(voice_control | 0x1F);
@@ -1165,26 +1163,26 @@ static void StopSFX(void)
 	track = &v_snddriver_ram.v_sfx_fm3_track[0];
 	for (i = 0; i < SOUND_DRIVER_NUM_SFX_TRACKS; i++, track++)
 	{
-		union VoiceControl voice;
+		u8 voice;
 		u8 *voice_ptr;
 
 		/* Is track not playing? */
-		if (!track->PlaybackControl.s.playing)
+		if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 			continue;
 
-		track->PlaybackControl.s.playing = 0;
+		track->PlaybackControl &= ~PLAYBACKCONTROL_PLAYING;
 
 		/* Is track not PSG? */
 		voice = track->VoiceControl;
 
-		if (!voice.s.is_psg)
+		if (!(voice & VOICECONTROL_IS_PSG))
 		{
 			SoundDriverTrack *old_track;
 
 			FMNoteOff(track);
 
 			/* Is this the special sfx FM4 track? */
-			if (voice.b == 4 && v_snddriver_ram.v_spcsfx_fm4_track[0].PlaybackControl.s.playing)
+			if (voice == 4 && (v_snddriver_ram.v_spcsfx_fm4_track[0].PlaybackControl & PLAYBACKCONTROL_PLAYING))
 			{
 #ifdef SONIC1C_FIX_MAJOR_UB
 				/* Original code doesn't do this, causing an uninitialized variable use */
@@ -1196,14 +1194,14 @@ static void StopSFX(void)
 			{
 				/* - 2 because SFX only has FM3 and up */
 				old_track = track;
-				track = SFX_BGMChannelRAM[voice.b - 2];
+				track = SFX_BGMChannelRAM[voice - 2];
 				voice_ptr = v_snddriver_ram.state.v_voice_ptr;
 			}
 
 			/* Clear sfx override flag */
-			track->PlaybackControl.s.sfx_override = 0;
+			track->PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
 			/* Set track at rest bit */
-			track->PlaybackControl.s.at_rest = 1;
+			track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 
 			SetVoice(track, track->u.fm.VoiceIndex, voice_ptr);
 			track = old_track;
@@ -1215,24 +1213,22 @@ static void StopSFX(void)
 			PSGNoteOff(track);
 
 #ifdef SONIC1C_FIX_BUGS
-			if ((v_snddriver_ram.v_spcsfx_psg3_track[0].PlaybackControl & (1 << 7)) && (voice.b == 0xE0 || voice.b == 0xC0))
+			if ((v_snddriver_ram.v_spcsfx_psg3_track[0].PlaybackControl & PLAYBACKCONTROL_PLAYING) && (voice == 0xE0 || voice == 0xC0))
 #else
-			if (voice.b == 0xE0 || voice.b == 0xC0)
+			if (voice == 0xE0 || voice == 0xC0)
 #endif
 			{
 				voice_track = &v_snddriver_ram.v_spcsfx_psg3_track[0];
 			}
 			else
 			{
-				voice_track = SFX_BGMChannelRAM[voice.psg.index];
+				voice_track = SFX_BGMChannelRAM[voice >> (3 + 2)];
 			}
 
-			/* Clear sfx override flag */
-			voice_track->PlaybackControl.s.sfx_override = 0;
-			/* Set track at rest bit */
-			voice_track->PlaybackControl.s.at_rest = 1;
+			voice_track->PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
+			voice_track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 
-			if (voice_track->VoiceControl.b == 0xE0)
+			if (voice_track->VoiceControl == 0xE0)
 				PSG_Input(voice_track->u.psg.PSGNoise);
 		}
 	}
@@ -1245,25 +1241,23 @@ static void StopSpecialSFX(void)
 	/* Is FM4 track playing? */
 	track = &v_snddriver_ram.v_spcsfx_fm4_track[0];
 	
-	if (track->PlaybackControl.s.playing)
+	if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 	{
-		track->PlaybackControl.s.playing = 0;
+		track->PlaybackControl &= ~PLAYBACKCONTROL_PLAYING;
 
 		/* Is SFX not overriding? */
-		if (!(track->PlaybackControl.s.sfx_override))
+		if (!(track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE))
 		{
 			SendFMNoteOff(track);
 
 			/* Release music track */
 			track = &v_snddriver_ram.state.v_music_fm1_track[4 - 1];
 
-			/* Clear sfx override flag */
-			track->PlaybackControl.s.sfx_override = 0;
-			/* Set track at rest bit */
-			track->PlaybackControl.s.at_rest = 1;
+			track->PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
+			track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 
 			/* Is track playing? */
-			if (track->PlaybackControl.s.playing)
+			if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 				SetVoice(track, track->u.fm.VoiceIndex, v_snddriver_ram.state.v_voice_ptr);
 		}
 	}
@@ -1271,25 +1265,23 @@ static void StopSpecialSFX(void)
 	/* Is PSG3 track playing? */
 	track = &v_snddriver_ram.v_spcsfx_psg3_track[0];
 
-	if (track->PlaybackControl.s.playing)
+	if (track->PlaybackControl & PLAYBACKCONTROL_PLAYING)
 	{
-		track->PlaybackControl.s.playing = 0;
+		track->PlaybackControl &= ~PLAYBACKCONTROL_PLAYING;
 
 		/* Is SFX not overriding? */
-		if (!(track->PlaybackControl.s.sfx_override))
+		if (!(track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE))
 		{
 			SendPSGNoteOff(track);
 
 			/* Release music track */
 			track = &v_snddriver_ram.state.v_music_psg1_track[3 - 1];
 
-			/* Clear sfx override flag */
-			track->PlaybackControl.s.sfx_override = 0;
-			/* Set track at rest bit */
-			track->PlaybackControl.s.at_rest = 1;
+			track->PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
+			track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 
 			/* Is track playing? */
-			if (track->PlaybackControl.s.playing && track->VoiceControl.b == 0xE0)
+			if ((track->PlaybackControl & PLAYBACKCONTROL_PLAYING) && track->VoiceControl == 0xE0)
 				PSG_Input(track->u.psg.PSGNoise);
 		}
 	}
@@ -1302,7 +1294,7 @@ static int FadeOutMusic(void)
 
 	v_snddriver_ram.state.v_fadeout_delay = 3;
 	v_snddriver_ram.state.v_fadeout_counter = 0x28;
-	v_snddriver_ram.state.v_music_dac_track[0].PlaybackControl.b = 0;
+	v_snddriver_ram.state.v_music_dac_track[0].PlaybackControl = 0;
 	v_snddriver_ram.state.f_speedup = 0;
 
 	return 0;
@@ -1332,12 +1324,12 @@ static void DoFadeOut(void)
 	for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_FM_TRACKS; i++, track++)
 	{
 		/* Is track not playing */
-		if (!track->PlaybackControl.s.playing)
+		if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 			continue;
 
 		if (++track->u.fm.Volume >= 0x80)
 		{
-			track->PlaybackControl.s.playing = 0;
+			track->PlaybackControl &= ~PLAYBACKCONTROL_PLAYING;
 			continue;
 		}
 
@@ -1348,12 +1340,12 @@ static void DoFadeOut(void)
 	for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_PSG_TRACKS; i++, track++)
 	{
 		/* Is track not playing */
-		if (!track->PlaybackControl.s.playing)
+		if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 			continue;
 
 		if (++track->u.psg.Volume >= 0x10)
 		{
-			track->PlaybackControl.s.playing = 0;
+			track->PlaybackControl &= ~PLAYBACKCONTROL_PLAYING;
 			continue;
 		}
 
@@ -1556,7 +1548,7 @@ static void DoFadeIn(void)
 		for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_FM_TRACKS; i++, track++)
 		{
 			/* Is track not playing? */
-			if (!track->PlaybackControl.s.playing)
+			if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 				continue;
 			
 			/* Reduce volume attenuation */
@@ -1570,7 +1562,7 @@ static void DoFadeIn(void)
 			u8 volume;
 
 			/* Is track not playing? */
-			if (!track->PlaybackControl.s.playing)
+			if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 				continue;
 
 			/* Reduce volume attenuation */
@@ -1585,8 +1577,7 @@ static void DoFadeIn(void)
 	}
 	else
 	{
-		/* Clear sfx override flag */
-		v_snddriver_ram.state.v_music_dac_track[0].PlaybackControl.s.sfx_override = 0;
+		v_snddriver_ram.state.v_music_dac_track[0].PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
 
 		v_snddriver_ram.state.f_fadein_flag = 0;
 	}
@@ -1594,24 +1585,20 @@ static void DoFadeIn(void)
 
 static void FMNoteOn(SoundDriverTrack *track)
 {
-	/* Is track resting? */
-	if (track->PlaybackControl.s.at_rest)
+	if (track->PlaybackControl & PLAYBACKCONTROL_AT_REST)
 		return;
-	/* Is sfx overriding? */
-	if (track->PlaybackControl.s.sfx_override)
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return;
 
 	/* Note on/off register */
-	WriteFMI(0x28, track->VoiceControl.b | 0xF0);
+	WriteFMI(0x28, track->VoiceControl | 0xF0);
 }
 
 static void FMNoteOff(SoundDriverTrack *track)
 {
-	/* Is 'do not attack next note' set? */
-	if (track->PlaybackControl.s.do_not_attack_next)
+	if (track->PlaybackControl & PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT)
 		return;
-	/* Is sfx overriding? */
-	if (track->PlaybackControl.s.sfx_override)
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return;
 
 	SendFMNoteOff(track);
@@ -1620,51 +1607,47 @@ static void FMNoteOff(SoundDriverTrack *track)
 static void SendFMNoteOff(SoundDriverTrack *track)
 {
 	/* Note on/off register */
-	WriteFMI(0x28, track->VoiceControl.b);
+	WriteFMI(0x28, track->VoiceControl);
 }
 
 /* YM2612 register writes */
 static void WriteFMIorIIMain(SoundDriverTrack *track, u8 addr, u8 data)
 {
-	if (track->PlaybackControl.s.sfx_override)
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return;
 	WriteFMIorII(track, addr, data);
 }
 
 static void WriteFMIorII(SoundDriverTrack *track, u8 addr, u8 data)
 {
-	if (track->VoiceControl.s.is_fm2)
+	if ((track->VoiceControl & VOICECONTROL_IS_FM2))
 	{
 		WriteFMIIPart(track, addr, data);
 	}
 	else
 	{
-		addr += track->VoiceControl.b;
+		addr += track->VoiceControl;
 		WriteFMI(addr, data);
 	}
 }
 
 static void WriteFMI(u8 addr, u8 data)
 {
-	/* Writes to ym2612_a0 and ym2612_d0 */
-	(void)addr;
-	(void)data;
+	YM2612_InputA(addr, data);
 }
 
 static void WriteFMIIPart(SoundDriverTrack *track, u8 addr, u8 data)
 {
-	union VoiceControl voice;
+	u8 voice;
 	voice = track->VoiceControl;
-	voice.s.is_fm2 = 0;
+	voice &= ~VOICECONTROL_IS_FM2;
 
-	WriteFMII(addr + voice.b, data);
+	WriteFMII(addr + voice, data);
 }
 
 static void WriteFMII(u8 addr, u8 data)
 {
-	/* Writes to ym2612_a1 and ym2612_d1 */
-	(void)addr;
-	(void)data;
+	YM2612_InputB(addr, data);
 }
 
 #define MakeFMFrequency(frequency) ((s16)((double)frequency * 1024 * 1024 * 2 / FM_Sample_Rate))
@@ -1700,7 +1683,7 @@ static int PSGUpdateTrack(SoundDriverTrack *track)
 {
 	if (!--track->u.psg.DurationTimeout)
 	{
-		track->PlaybackControl.s.do_not_attack_next = 0;
+		track->PlaybackControl &= ~PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT;
 		if (PSGDoNext(track))
 			return 1;
 		PSGDoNoteOn(track);
@@ -1726,7 +1709,7 @@ static int PSGDoNext(SoundDriverTrack *track)
 
 	u8 unit;
 
-	track->PlaybackControl.s.at_rest = 0;
+	track->PlaybackControl &= ~PLAYBACKCONTROL_AT_REST;
 
 	data_p = track->DataPointer;
 
@@ -1782,7 +1765,7 @@ static void PSGSetFreq(SoundDriverTrack *track, u8 *data_p, u8 note)
 	}
 	else
 	{
-		track->PlaybackControl.s.at_rest = 1;
+		track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 		track->u.psg.Freq = -1;
 		FinishTrackUpdate(track, data_p);
 		PSGNoteOff(track);
@@ -1805,27 +1788,27 @@ static void PSGDoNoteOn(SoundDriverTrack *track)
 
 static void PSGUpdateFreq(SoundDriverTrack *track, s16 freq)
 {
-	union VoiceControl voice;
+	u8 voice;
 
 	freq += (s8)track->u.psg.Detune;
 
-	if (track->PlaybackControl.s.sfx_override)
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return;
-	if (track->PlaybackControl.s.at_rest)
+	if (track->PlaybackControl & PLAYBACKCONTROL_AT_REST)
 		return;
 
 	voice = track->VoiceControl;
 
-	if (voice.b == 0xE0)
-		voice.b = 0xC0;
+	if (voice == 0xE0)
+		voice = 0xC0;
 
-	PSG_Input(voice.b | (freq & 0xF));
+	PSG_Input(voice | (freq & 0xF));
 	PSG_Input(((freq >> 4) & 0xF));
 }
 
 static void PSGSetRest(SoundDriverTrack *track)
 {
-	track->PlaybackControl.s.at_rest = 1;
+	track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 }
 
 static void PSGUpdateVolFX(SoundDriverTrack *track)
@@ -1870,11 +1853,11 @@ static void PSGDoVolFX(SoundDriverTrack *track)
 
 static void SetPSGVolume(SoundDriverTrack *track, u8 volume)
 {
-	if (!track->PlaybackControl.s.playing)
+	if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 		return;
-	if (track->PlaybackControl.s.sfx_override)
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return;
-	if (track->PlaybackControl.s.do_not_attack_next)
+	if (track->PlaybackControl & PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT)
 	{
 		PSGCheckNoteTimeout(track, volume);
 		return;
@@ -1885,7 +1868,7 @@ static void SetPSGVolume(SoundDriverTrack *track, u8 volume)
 
 static void PSGSendVolume(SoundDriverTrack *track, u8 volume)
 {
-	PSG_Input((track->VoiceControl.b | volume) + 0x10);
+	PSG_Input((track->VoiceControl | volume) + 0x10);
 }
 
 static void PSGCheckNoteTimeout(SoundDriverTrack *track, u8 volume)
@@ -1902,7 +1885,7 @@ static void VolEnvHold(SoundDriverTrack *track)
 static void PSGNoteOff(SoundDriverTrack *track)
 {
 	/* Is sfx overriding? */
-	if (track->PlaybackControl.s.sfx_override)
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return;
 
 	SendPSGNoteOff(track);
@@ -1911,11 +1894,11 @@ static void PSGNoteOff(SoundDriverTrack *track)
 static void SendPSGNoteOff(SoundDriverTrack *track)
 {
 	/* Is track not playing? */
-	if (!track->PlaybackControl.s.playing)
+	if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 		return;
 	
 	/* Maximum volume attenuation */
-	PSG_Input(track->VoiceControl.b | 0x1F);
+	PSG_Input(track->VoiceControl | 0x1F);
 
 #ifdef SONIC1C_FIX_BUGS
 	/* This is the same fix that S&K's driver uses: */
@@ -1994,7 +1977,7 @@ static int cfPanningAMSFMS(SoundDriverTrack *track, u8 **data)
 	new_amsfms = *(*data)++;
 
 	/* Is this a PSG track? */
-	if (track->VoiceControl.s.is_psg)
+	if ((track->VoiceControl & VOICECONTROL_IS_PSG))
 		return 0;
 
 	new_amsfms |= (track->u.fm.AMSFMSPan & 0x37);
@@ -2035,7 +2018,7 @@ static int cfJumpReturn(SoundDriverTrack *track, u8 **data)
 
 	*data += 2; /* Skip the command itself */
 
-	track->u.fm.StackPointer = sp + 4;
+	track->u.fm.StackPointer = sp + sizeof(u8*);
 
 	return 0;
 }
@@ -2055,7 +2038,7 @@ static int cfFadeInToPrevious(SoundDriverTrack *track, u8 **data)
 	memcpy(&v_snddriver_ram.state, &v_snddriver_ram.state_1up, sizeof(v_snddriver_ram.state));
 
 	/* Setup DAC track */
-	v_snddriver_ram.state.v_music_dac_track[0].PlaybackControl.s.sfx_override = 1;
+	v_snddriver_ram.state.v_music_dac_track[0].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 
 	/* Setup FM tracks */
 	volume = 0x28;
@@ -2064,14 +2047,14 @@ static int cfFadeInToPrevious(SoundDriverTrack *track, u8 **data)
 	for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_FM_TRACKS; i++, music_track++)
 	{
 		/* Is track not playing? */
-		if (!music_track->PlaybackControl.s.playing)
+		if (!(music_track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 			continue;
 
-		music_track->PlaybackControl.s.at_rest = 1; /* Set 'track at rest' bit */
+		music_track->PlaybackControl |= PLAYBACKCONTROL_AT_REST; /* Set 'track at rest' bit */
 		music_track->u.fm.Volume += volume;
 
 		/* Is SFX overriding? */
-		if (music_track->PlaybackControl.s.sfx_override)
+		if ((music_track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE))
 			continue;
 
 		SetVoice(music_track, music_track->u.fm.VoiceIndex, v_snddriver_ram.state.v_voice_ptr);
@@ -2082,10 +2065,10 @@ static int cfFadeInToPrevious(SoundDriverTrack *track, u8 **data)
 	for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_PSG_TRACKS; i++, music_track++)
 	{
 		/* Is track not playing? */
-		if (!music_track->PlaybackControl.s.playing)
+		if (!(music_track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 			continue;
 
-		music_track->PlaybackControl.s.at_rest = 1; /* Set 'track at rest' bit */
+		music_track->PlaybackControl |= PLAYBACKCONTROL_AT_REST; /* Set 'track at rest' bit */
 		PSGNoteOff(music_track);
 		music_track->u.psg.Volume += volume;
 	}
@@ -2114,7 +2097,7 @@ static int cfHoldNote(SoundDriverTrack *track, u8 **data)
 {
 	(void)data;
 
-	track->PlaybackControl.s.do_not_attack_next = 1;
+	track->PlaybackControl |= PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT;
 	return 0;
 }
 
@@ -2180,19 +2163,19 @@ static int cfStopSpecialFM4(SoundDriverTrack *track, u8 **data)
 
 	(void)data;
 
-	track->PlaybackControl.s.playing = 0;
-	track->PlaybackControl.s.do_not_attack_next = 0;
+	track->PlaybackControl &= ~PLAYBACKCONTROL_PLAYING;
+	track->PlaybackControl &= ~PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT;
 	FMNoteOff(track);
 
 	/* Is SFX using FM4? */
-	if (v_snddriver_ram.v_sfx_fm3_track[0].PlaybackControl.s.playing)
+	if (v_snddriver_ram.v_sfx_fm3_track[0].PlaybackControl & PLAYBACKCONTROL_PLAYING)
 		return 1;
 
 	/* Reset music FM4 */
 	music_track = &v_snddriver_ram.state.v_music_fm1_track[4 - 1];
 
-	music_track->PlaybackControl.s.sfx_override = 0;
-	music_track->PlaybackControl.s.at_rest = 1;
+	music_track->PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
+	music_track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 
 	SetVoice(music_track, music_track->u.fm.VoiceIndex, v_snddriver_ram.state.v_voice_ptr);
 
@@ -2207,7 +2190,7 @@ static int cfSetVoice(SoundDriverTrack *track, u8 **data)
 	track->u.fm.VoiceIndex = voice;
 
 	/* Is SFX overriding this track? */
-	if (track->PlaybackControl.s.sfx_override)
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return 0;
 	
 	if (!v_snddriver_ram.state.f_voice_selector)
@@ -2275,7 +2258,7 @@ static void SendVoiceTL(SoundDriverTrack *track)
 	u8 slot_mask, volume;
 
 	/* Is SFX overriding? */
-	if (track->PlaybackControl.s.sfx_override)
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return;
 
 	voice = track->u.fm.VoiceIndex;
@@ -2360,7 +2343,7 @@ static int cfModulation(SoundDriverTrack *track, u8 **data)
 	(void)track;
 	(void)data;
 
-	track->PlaybackControl.s.modulation = 1;
+	track->PlaybackControl |= PLAYBACKCONTROL_MODULATION;
 
 	track->u.fm.ModulationPtr = *data;
 	track->u.fm.ModulationWait = *(*data)++;
@@ -2376,21 +2359,21 @@ static int cfEnableModulation(SoundDriverTrack *track, u8 **data)
 {
 	(void)data;
 
-	track->PlaybackControl.s.modulation = 1;
+	track->PlaybackControl |= PLAYBACKCONTROL_MODULATION;
 	return 0;
 }
 
 static int cfStopTrack(SoundDriverTrack *track, u8 **data)
 {
-	union VoiceControl voice;
+	u8 voice;
 
 	(void)data;
 
-	track->PlaybackControl.s.playing = 0;
-	track->PlaybackControl.s.do_not_attack_next = 0;
+	track->PlaybackControl &= ~PLAYBACKCONTROL_PLAYING;
+	track->PlaybackControl &= ~PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT;
 
 	/* Is this not a PSG track? */
-	if (!(track->VoiceControl.s.is_psg))
+	if (!((track->VoiceControl & VOICECONTROL_IS_PSG)))
 	{
 		/* Is this the DAC we are updating? */
 		if (v_snddriver_ram.state.f_updating_dac)
@@ -2412,7 +2395,7 @@ static int cfStopTrack(SoundDriverTrack *track, u8 **data)
 	voice = track->VoiceControl;
 
 	/* Is this not a PSG track? */
-	if (!(track->VoiceControl.s.is_psg))
+	if (!(track->VoiceControl & VOICECONTROL_IS_PSG))
 	{
 		SoundDriverTrack *old_track;
 
@@ -2421,7 +2404,7 @@ static int cfStopTrack(SoundDriverTrack *track, u8 **data)
 		old_track = track;
 
 		/* Is this special FM4? */
-		if (voice.b == 4 && v_snddriver_ram.v_spcsfx_fm4_track[0].PlaybackControl.s.playing)
+		if (voice == 4 && (v_snddriver_ram.v_spcsfx_fm4_track[0].PlaybackControl & PLAYBACKCONTROL_PLAYING))
 		{
 			track = &v_snddriver_ram.v_spcsfx_fm4_track[0];
 			voice_ptr = v_snddriver_ram.state.v_special_voice_ptr;
@@ -2429,19 +2412,19 @@ static int cfStopTrack(SoundDriverTrack *track, u8 **data)
 		else
 		{
 			/* - 2 because SFX can only use FM3 and up */
-			track = SFX_BGMChannelRAM[voice.b - 2];
+			track = SFX_BGMChannelRAM[voice - 2];
 
 			/* Is track not playing? */
-			if (!track->PlaybackControl.s.playing)
+			if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
 				return 1;
 
 			voice_ptr = v_snddriver_ram.state.v_voice_ptr;
 		}
 
-		track->PlaybackControl.s.sfx_override = 0;
-		track->PlaybackControl.s.at_rest = 1;
+		track->PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
+		track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 
-		SetVoice(track, voice.b, voice_ptr);
+		SetVoice(track, voice, voice_ptr);
 		track = old_track;
 	}
 	else
@@ -2449,17 +2432,17 @@ static int cfStopTrack(SoundDriverTrack *track, u8 **data)
 		SoundDriverTrack *voice_track;
 
 		/* Is this special PSG3? */
-		if (v_snddriver_ram.v_spcsfx_psg3_track[0].PlaybackControl.s.playing && (voice.b == 0xE0 || voice.b == 0xC0))
+		if ((v_snddriver_ram.v_spcsfx_psg3_track[0].PlaybackControl & PLAYBACKCONTROL_PLAYING) && (voice == 0xE0 || voice == 0xC0))
 		{
 			voice_track = &v_snddriver_ram.v_spcsfx_psg3_track[0];
 		}
 		else
 		{
-			voice_track = SFX_BGMChannelRAM[voice.psg.index];
+			voice_track = SFX_BGMChannelRAM[voice >> (3 + 2)];
 		}
 
-		voice_track->PlaybackControl.s.sfx_override = 0;
-		voice_track->PlaybackControl.s.at_rest = 1;
+		voice_track->PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
+		voice_track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 
 		PSG_Input(voice_track->u.psg.PSGNoise);
 	}
@@ -2469,11 +2452,11 @@ static int cfStopTrack(SoundDriverTrack *track, u8 **data)
 
 static int cfSetPSGNoise(SoundDriverTrack *track, u8 **data)
 {
-	track->VoiceControl.b = 0xE0;
+	track->VoiceControl = 0xE0;
 	track->u.psg.PSGNoise = *(*data)++;
 
 	/* Is track not being overriden? */
-	if (!(track->PlaybackControl.s.sfx_override))
+	if (!(track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE))
 		PSG_Input(track->u.psg.PSGNoise);
 	
 	return 0;
@@ -2483,7 +2466,7 @@ static int cfDisableModulation(SoundDriverTrack *track, u8 **data)
 {
 	(void)data;
 
-	track->PlaybackControl.s.modulation = 0;
+	track->PlaybackControl &= ~PLAYBACKCONTROL_MODULATION;
 	return 0;
 }
 
@@ -2500,6 +2483,8 @@ static int cfJumpTo(SoundDriverTrack *track, u8 **data)
 	(void)track;
 	
 	offset = ((u16)(*data)[0] << 8) | (*data)[1];
+	*data += 2;
+
 	if (offset & 0x8000)
 		offset -= 0x10000;
 
@@ -2533,7 +2518,7 @@ static int cfJumpToGosub(SoundDriverTrack *track, u8 **data)
 	(void)track;
 
 	/* Push current data pointer to stack */
-	sp = track->u.fm.StackPointer - 4;
+	sp = track->u.fm.StackPointer - sizeof(u8*);
 
 	*(u8**)((u8*)track + sp) = *data;
 
