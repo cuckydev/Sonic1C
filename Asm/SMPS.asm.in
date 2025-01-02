@@ -1,0 +1,14 @@
+	cpu 68000
+
+Revision	  = 1
+
+zeroOffsetOptimization = 0	; if 1, makes a handful of zero-offset instructions smaller
+
+	include "MacroSetup.asm"
+	include "Macros.asm"
+
+FixMusicAndSFXDataBugs = 1 ; This seems to fix some OOB data access which is probably more important on PC than on Mega Drive.
+SonicDriverVer = 1 ; Tell SMPS2ASM that we're using Sonic 1's driver.
+	include "sound/_smps2asm_inc.asm"
+
+	include "${ASM_TO_BUILD}"
