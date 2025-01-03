@@ -253,14 +253,10 @@ static int DACUpdateTrack(SoundDriverTrack *track)
 	while (1)
 	{
 		unit = *data_p++;
-
-		if (unit >= 0xE0)
-		{
-			if (CoordFlag(track, &data_p, unit))
-				return 1;
-		}
-		else
+		if (unit < 0xE0)
 			break;
+		if (CoordFlag(track, &data_p, unit))
+			return 1;
 	}
 
 	/* If the unit is a note */
@@ -347,16 +343,15 @@ static int FMDoNext(SoundDriverTrack *track)
 
 	data_p = track->DataPointer;
 
+	track->PlaybackControl &= ~PLAYBACKCONTROL_AT_REST;
+
 	while (1)
 	{
 		unit = *data_p++;
-		if (unit >= 0xE0)
-		{
-			if (CoordFlag(track, &data_p, unit))
-				return 1;
-		}
-		else
+		if (unit < 0xE0)
 			break;
+		if (CoordFlag(track, &data_p, unit))
+			return 1;
 	}
 
 	FMNoteOff(track);
@@ -367,21 +362,15 @@ static int FMDoNext(SoundDriverTrack *track)
 		FMSetFreq(track, data_p, unit);
 
 		unit = *data_p++;
-
 		if (unit & 0x80)
 		{
 			data_p--;
-		}
-		else
-		{
-			SetDuration(track, unit);
+			FinishTrackUpdate(track, data_p);
+			return 0;
 		}
 	}
-	else
-	{
-		SetDuration(track, unit);
-	}
-
+	
+	SetDuration(track, unit);
 	FinishTrackUpdate(track, data_p);
 	return 0;
 }
@@ -433,6 +422,7 @@ static void FinishTrackUpdate(SoundDriverTrack *track, u8 *data_p)
 		return;
 
 	track->u.fm.NoteTimeout = track->u.fm.NoteTimeoutMaster;
+
 	track->u.psg.VolEnvIndex = 0;
 
 	if (track->PlaybackControl & PLAYBACKCONTROL_MODULATION)
@@ -450,7 +440,7 @@ static int NoteTimeoutUpdate(SoundDriverTrack *track)
 	if (!track->u.fm.NoteTimeout || --track->u.fm.NoteTimeout)
 		return 0;
 
-	track->PlaybackControl |= 1;
+	track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 
 	if (!(track->VoiceControl & VOICECONTROL_IS_PSG))
 		FMNoteOff(track);
@@ -649,14 +639,13 @@ static void CycleSoundQueue(void)
 		sfx_idx -= bgm__First;
 
 		/* Is sound a $80 (silence/empty)? */
-		if (v_snddriver_ram.state.v_sound_id == 0x80)
+		if (v_snddriver_ram.state.v_sound_id != 0x80)
 		{
 			v_snddriver_ram.state.v_soundqueue[0] = sfx;
 			continue;
 		}
 
-		sfx_idx &= 0x7F;
-		sfx_pri = SoundPriorities[sfx_idx];
+		sfx_pri = SoundPriorities[sfx_idx & 0x7F];
 
 		if (sfx_pri < sndprio)
 			continue;
@@ -679,6 +668,8 @@ static int PlaySoundID(void)
 		return StopAllSound();
 	else if (!(sound_id & 0x80))
 		return 0;
+
+	v_snddriver_ram.state.v_sound_id = 0x80;
 
 	/* Check if this is a music track */
 	if (sound_id < sfx__First)
@@ -791,6 +782,7 @@ static int Sound_PlayBGM(u8 sound_id)
 	duration = 1;
 #endif
 
+	/* Load FM tracks */
 	number_of_tracks = sound_base[2];
 	if (number_of_tracks != 0)
 	{
@@ -855,6 +847,7 @@ static int Sound_PlayBGM(u8 sound_id)
 		}
 	}
 
+	/* Load PSG tracks */
 	number_of_tracks = sound_base[3];
 	if (number_of_tracks != 0)
 	{
@@ -918,6 +911,19 @@ static int Sound_PlayBGM(u8 sound_id)
 		v_snddriver_ram.state.v_music_fm1_track[4 - 1].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
 	if (v_snddriver_ram.v_spcsfx_psg3_track[0].PlaybackControl & PLAYBACKCONTROL_PLAYING)
 		v_snddriver_ram.state.v_music_psg1_track[3 - 1].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
+
+	/* Send note offs */
+	{
+		SoundDriverTrack *track;
+
+		track = &v_snddriver_ram.state.v_music_fm1_track[0];
+		for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_FM_TRACKS; i++, track++)
+			FMNoteOff(track);
+
+		track = &v_snddriver_ram.state.v_music_psg1_track[0];
+		for (i = 0; i < SOUND_DRIVER_NUM_MUSIC_PSG_TRACKS; i++, track++)
+			PSGNoteOff(track);
+	}
 
 	return 1;
 }
@@ -1633,7 +1639,7 @@ static void WriteFMIorII(SoundDriverTrack *track, u8 addr, u8 data)
 
 static void WriteFMI(u8 addr, u8 data)
 {
-	YM2612_InputA(addr, data);
+	YM2612_Input1(addr, data);
 }
 
 static void WriteFMIIPart(SoundDriverTrack *track, u8 addr, u8 data)
@@ -1647,7 +1653,7 @@ static void WriteFMIIPart(SoundDriverTrack *track, u8 addr, u8 data)
 
 static void WriteFMII(u8 addr, u8 data)
 {
-	YM2612_InputB(addr, data);
+	YM2612_Input2(addr, data);
 }
 
 #define MakeFMFrequency(frequency) ((s16)((double)frequency * 1024 * 1024 * 2 / FM_Sample_Rate))
@@ -1717,14 +1723,10 @@ static int PSGDoNext(SoundDriverTrack *track)
 	while (1)
 	{
 		unit = *data_p++;
-
-		if (unit >= 0xE0)
-		{
-			if (CoordFlag(track, &data_p, unit))
-				return 1;
-		}
-		else
+		if (unit < 0xE0)
 			break;
+		if (CoordFlag(track, &data_p, unit))
+			return 1;
 	}
 
 	/* If the unit is a note */
@@ -1737,17 +1739,12 @@ static int PSGDoNext(SoundDriverTrack *track)
 		if (unit & 0x80)
 		{
 			data_p--;
+			FinishTrackUpdate(track, data_p);
+			return 0;
 		}
-		else
-		{
-			SetDuration(track, unit);
-		}
-	}
-	else
-	{
-		SetDuration(track, unit);
 	}
 
+	SetDuration(track, unit);
 	FinishTrackUpdate(track, data_p);
 	return 0;
 }
@@ -1803,7 +1800,7 @@ static void PSGUpdateFreq(SoundDriverTrack *track, s16 freq)
 		voice = 0xC0;
 
 	PSG_Input(voice | (freq & 0xF));
-	PSG_Input(((freq >> 4) & 0xF));
+	PSG_Input((freq >> 4) & 0x3F);
 }
 
 static void PSGSetRest(SoundDriverTrack *track)
@@ -1829,15 +1826,19 @@ static void PSGDoVolFX(SoundDriverTrack *track)
 	volume = track->u.psg.Volume;
 	voice_index = track->u.psg.VoiceIndex;
 
-	SetPSGVolume(track, volume);
+	if (voice_index == 0)
+	{
+		SetPSGVolume(track, volume);
+		return;
+	}
 
-	psg_p = (s8*)PSG_Index[voice_index];
+	psg_p = (s8*)PSG_Index[voice_index - 1];
 	psg_v = psg_p[track->u.psg.VolEnvIndex];
 
 	track->u.psg.VolEnvIndex++;
 	if (psg_v < 0)
 	{
-		if (psg_v == (s8)-0x80)
+		if (psg_v == -0x80)
 		{
 			VolEnvHold(track);
 			return;
@@ -1853,7 +1854,7 @@ static void PSGDoVolFX(SoundDriverTrack *track)
 
 static void SetPSGVolume(SoundDriverTrack *track, u8 volume)
 {
-	if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
+	if (track->PlaybackControl & PLAYBACKCONTROL_AT_REST)
 		return;
 	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
 		return;
@@ -1893,10 +1894,6 @@ static void PSGNoteOff(SoundDriverTrack *track)
 
 static void SendPSGNoteOff(SoundDriverTrack *track)
 {
-	/* Is track not playing? */
-	if (!(track->PlaybackControl & PLAYBACKCONTROL_PLAYING))
-		return;
-	
 	/* Maximum volume attenuation */
 	PSG_Input(track->VoiceControl | 0x1F);
 
@@ -2210,7 +2207,7 @@ static void SetVoice(SoundDriverTrack *track, u8 voice, u8 *voice_ptr)
 	u8 feedback_algo;
 	u8 slot_mask, volume;
 
-	voice_ptr += (voice * 25) + 21;
+	voice_ptr += voice * 25;
 
 	/* Send feedback algo */
 	feedback_algo = *voice_ptr++;
@@ -2254,7 +2251,6 @@ static void SendVoiceTL(SoundDriverTrack *track)
 	u8 voice;
 	u8 *voice_ptr;
 
-	u8 feedback_algo;
 	u8 slot_mask, volume;
 
 	/* Is SFX overriding? */
@@ -2280,12 +2276,11 @@ static void SendVoiceTL(SoundDriverTrack *track)
 		if (v_snddriver_ram.state.f_voice_selector & 0x80)
 			voice_ptr = v_snddriver_ram.state.v_special_voice_ptr;
 	}
-	
+
 	/* Attenuate voice operator volumes */
 	voice_ptr += (voice * 25) + 21;
 
-	feedback_algo = track->u.fm.FeedbackAlgo & 7;
-	slot_mask = FMSlotMask[feedback_algo];
+	slot_mask = FMSlotMask[track->u.fm.FeedbackAlgo & 7];
 
 	volume = track->u.fm.Volume;
 	if (volume & 0x80)
@@ -2455,10 +2450,10 @@ static int cfSetPSGNoise(SoundDriverTrack *track, u8 **data)
 	track->VoiceControl = 0xE0;
 	track->u.psg.PSGNoise = *(*data)++;
 
-	/* Is track not being overriden? */
-	if (!(track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE))
-		PSG_Input(track->u.psg.PSGNoise);
-	
+	if (track->PlaybackControl & PLAYBACKCONTROL_SFX_OVERRIDE)
+		return 0;
+
+	PSG_Input((*data)[-1]);
 	return 0;
 }
 
