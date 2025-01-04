@@ -1101,13 +1101,13 @@ static void Sound_PlaySpecial(u8 sound_id)
 		if (!(voice_control & VOICECONTROL_IS_PSG))
 		{
 			v_snddriver_ram.state.v_music_fm1_track[4 - 1].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
-			track = &v_snddriver_ram.state.v_music_fm1_track[4 - 1];
+			track = &v_snddriver_ram.v_spcsfx_fm4_track[4 - 4];
 		}
 		else
 		{
 			/* Set SFX is overriding bit */
 			v_snddriver_ram.state.v_music_psg1_track[3 - 1].PlaybackControl |= PLAYBACKCONTROL_SFX_OVERRIDE;
-			track = &v_snddriver_ram.state.v_music_psg1_track[3 - 1];
+			track = &v_snddriver_ram.v_spcsfx_psg3_track[3 - 3];
 		}
 
 		memset(track, 0, sizeof(SoundDriverTrack));
@@ -1121,6 +1121,7 @@ static void Sound_PlaySpecial(u8 sound_id)
 		sound_p += 2;
 
 		track->u.fm.Transpose = *sound_p++;
+		track->u.fm.Volume = *sound_p++;
 
 		track->u.fm.DurationTimeout = 1;
 
@@ -2363,8 +2364,7 @@ static int cfStopTrack(SoundDriverTrack *track, u8 **data)
 	track->PlaybackControl &= ~PLAYBACKCONTROL_PLAYING;
 	track->PlaybackControl &= ~PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT;
 
-	/* Is this not a PSG track? */
-	if (!((track->VoiceControl & VOICECONTROL_IS_PSG)))
+	if (!(track->VoiceControl & VOICECONTROL_IS_PSG))
 	{
 		/* Is this the DAC we are updating? */
 		if (v_snddriver_ram.state.f_updating_dac)
@@ -2415,7 +2415,7 @@ static int cfStopTrack(SoundDriverTrack *track, u8 **data)
 		track->PlaybackControl &= ~PLAYBACKCONTROL_SFX_OVERRIDE;
 		track->PlaybackControl |= PLAYBACKCONTROL_AT_REST;
 
-		SetVoice(track, track->VoiceControl, voice_ptr);
+		SetVoice(track, track->u.fm.VoiceIndex, voice_ptr);
 		track = old_track;
 	}
 	else
