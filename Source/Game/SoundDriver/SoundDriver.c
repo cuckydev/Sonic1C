@@ -314,7 +314,7 @@ static u8 DAC_sample_rate[6] = {
 
 static int FMUpdateTrack(SoundDriverTrack *track)
 {
-	if (!--track->u.dac.DurationTimeout)
+	if (!--track->u.fm.DurationTimeout)
 	{
 		track->PlaybackControl &= ~PLAYBACKCONTROL_DO_NOT_ATTACK_NEXT;
 		if (FMDoNext(track))
@@ -1833,9 +1833,8 @@ static void PSGDoVolFX(SoundDriverTrack *track)
 	}
 
 	psg_p = (s8*)PSG_Index[voice_index - 1];
-	psg_v = psg_p[track->u.psg.VolEnvIndex];
+	psg_v = psg_p[track->u.psg.VolEnvIndex++];
 
-	track->u.psg.VolEnvIndex++;
 	if (psg_v < 0)
 	{
 		if (psg_v == -0x80)
@@ -2141,7 +2140,7 @@ static int cfSetTempoDividerAll(SoundDriverTrack *track, u8 **data)
 
 static int cfChangePSGVolume(SoundDriverTrack *track, u8 **data)
 {
-	track->u.psg.Volume = *(*data)++;
+	track->u.psg.Volume += *(*data)++;
 	return 0;
 }
 
@@ -2335,9 +2334,6 @@ u8 FMInstrumentTLTable[4] = {
 
 static int cfModulation(SoundDriverTrack *track, u8 **data)
 {
-	(void)track;
-	(void)data;
-
 	track->PlaybackControl |= PLAYBACKCONTROL_MODULATION;
 
 	track->u.fm.ModulationPtr = *data;
